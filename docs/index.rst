@@ -1,5 +1,5 @@
-PSync: Partial/Full Sync Library based on BF and IBF
-====================================================
+PSync: Partial and Full Sync Library for NDN
+============================================
 
 .. toctree::
    :hidden:
@@ -10,7 +10,7 @@ PSync: Partial/Full Sync Library based on BF and IBF
    release-notes
    releases
 
-PSync is a C++ library for name synchronization that implements the `PSync protocol
+**PSync** is a C++ library for name synchronization that implements the `PSync protocol
 <https://named-data.net/wp-content/uploads/2017/05/scalable_name-based_data_synchronization.pdf>`__.
 It uses Invertible Bloom Lookup Table (IBLT), also known as Invertible Bloom Filter (IBF),
 to represent the state of a producer in partial sync mode and the state of a node in full
@@ -25,6 +25,7 @@ Documentation
 
 - :doc:`install`
 - :doc:`examples`
+- `API documentation (doxygen) <doxygen/annotated.html>`__
 - :doc:`release-notes`
 - :doc:`releases`
 

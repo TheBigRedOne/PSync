@@ -9,8 +9,8 @@ import sys
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'PSync: Partial/Full Synchronization Protocol for NDN'
-copyright = 'Copyright © 2018-2024 Named Data Networking Project.'
+project = 'PSync'
+copyright = '2018-2026, Named Data Networking Project'
 author = 'Named Data Networking Project'
 
 # The short X.Y version.
@@ -29,7 +29,7 @@ today_fmt = '%Y-%m-%d'
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-needs_sphinx = '4.0'
+needs_sphinx = '7.0'
 extensions = [
     'sphinx.ext.extlinks',
     'sphinx.ext.todo',
@@ -47,26 +47,40 @@ def addExtensionIfExists(extension: str):
 
 addExtensionIfExists('sphinxcontrib.doxylink')
 
-templates_path = ['_templates']
-exclude_patterns = ['Thumbs.db', '.DS_Store']
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+
+# Disable syntax highlighting of code blocks by default.
+highlight_language = 'none'
+
+# Generate warnings for all missing references.
+nitpicky = True
 
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'named_data_theme'
-html_theme_path = ['.']
-
-# Add any paths that contain custom static files (such as style sheets) here,
-# relative to this directory. They are copied after the builtin static files,
-# so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ['_static']
-
+html_theme = 'furo'
+html_logo = 'ndn-logo.svg'
 html_copy_source = False
 html_show_sourcelink = False
 
-# Disable syntax highlighting of code blocks by default.
-highlight_language = 'none'
+html_theme_options = {
+    'light_css_variables': {
+        'color-brand-primary': '#bc4010',
+        'color-brand-content': '#c85000',
+        'color-brand-visited': '#c85000',
+    },
+    'dark_css_variables': {
+        'color-brand-primary': '#fd861a',
+        'color-brand-content': '#f87e00',
+        'color-brand-visited': '#f87e00',
+    },
+    'source_repository': 'https://github.com/named-data/PSync',
+    'source_branch': 'master',
+}
+
+pygments_style = 'tango'
+pygments_dark_style = 'material'
 
 
 # -- Misc options ------------------------------------------------------------
