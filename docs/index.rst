@@ -3,7 +3,6 @@ PSync: Partial and Full Sync Library for NDN
 
 .. toctree::
    :hidden:
-   :maxdepth: 2
 
    install
    examples
