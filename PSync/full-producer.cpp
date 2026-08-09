@@ -174,6 +174,30 @@ FullProducer::sendSyncInterest()
 }
 
 void
+FullProducer::triggerSync()
+{
+  auto now = ndn::time::steady_clock::now();
+  auto elapsed = now - m_lastTriggerTime;
+
+  if (elapsed < TRIGGER_COALESCE_INTERVAL) {
+    if (!m_isTriggerCoalesced) {
+      m_isTriggerCoalesced = true;
+      auto after = TRIGGER_COALESCE_INTERVAL - elapsed;
+      NDN_LOG_DEBUG("Coalescing sync trigger, re-expressing in " << after);
+      m_coalescedTriggerId = m_scheduler.schedule(after, [this] {
+        m_isTriggerCoalesced = false;
+        triggerSync();
+      });
+    }
+    return;
+  }
+
+  m_lastTriggerTime = now;
+  NDN_LOG_DEBUG("Re-expressing sync Interest on request");
+  sendSyncInterest();
+}
+
+void
 FullProducer::processWaitingInterests()
 {
   NDN_LOG_TRACE("Processing waiting Interest list, size: " << m_waitingForProcessing.size());

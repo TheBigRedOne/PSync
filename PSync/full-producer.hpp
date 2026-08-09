@@ -101,6 +101,26 @@ public:
   void
   publishName(const ndn::Name& prefix, std::optional<uint64_t> seq = std::nullopt);
 
+  /**
+   * @brief Rebuild the outstanding full-sync state at once.
+   *
+   * Full sync distributes an update by satisfying the sync Interests neighbours
+   * already have pending, so a peer that has just become reachable learns nothing
+   * until one side's periodic sync Interest is re-expressed. An application that
+   * knows the set of reachable peers has changed, for instance because a new
+   * adjacency came up, can call this to re-express immediately instead.
+   *
+   * The Interest goes wherever the sync prefix currently forwards, so this refreshes
+   * the state towards every peer rather than towards one of them.
+   *
+   * Requests closer together than TRIGGER_COALESCE_INTERVAL are coalesced into a
+   * single later one. Re-expressing restarts the segment fetch, so an unthrottled
+   * burst of requests would keep synchronization from completing; coalescing rather
+   * than discarding keeps the last request of a burst from being lost.
+   */
+  void
+  triggerSync();
+
 PSYNC_PUBLIC_WITH_TESTS_ELSE_PRIVATE:
   /**
    * @brief Send sync interest for full synchronization
@@ -231,6 +251,11 @@ private:
   std::map<ndn::Name, WaitingEntryInfo> m_waitingForProcessing;
   bool m_inNoNewDataWaitOutPeriod = false;
   ndn::scheduler::ScopedEventId m_interestDelayTimerId;
+  /// Shortest spacing between two re-expressions requested through triggerSync().
+  static constexpr ndn::time::milliseconds TRIGGER_COALESCE_INTERVAL = 1_s;
+  ndn::time::steady_clock::time_point m_lastTriggerTime;
+  bool m_isTriggerCoalesced = false;
+  ndn::scheduler::ScopedEventId m_coalescedTriggerId;
 
 PSYNC_PUBLIC_WITH_TESTS_ELSE_PRIVATE:
   std::map<ndn::Name, PendingEntryInfo> m_pendingEntries;
