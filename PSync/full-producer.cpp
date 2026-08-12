@@ -98,13 +98,6 @@ FullProducer::sendSyncInterest()
     return;
   }
 
-  // If we send two sync interest one after the other
-  // since there is no new data in the network yet,
-  // when data is available it may satisfy both of them
-  if (m_fetcher) {
-    m_fetcher->stop();
-  }
-
   // Sync Interest format for full sync: /<sync-prefix>/<ourLatestIBF>
   ndn::Name syncInterestName = m_syncPrefix;
 
@@ -114,10 +107,24 @@ FullProducer::sendSyncInterest()
   syncInterestName.appendNumber(m_numOwnElements);
 
   auto currentTime = ndn::time::system_clock::now();
-  if ((currentTime - m_lastInterestSentTime < ndn::time::milliseconds(MIN_JITTER)) &&
+  auto elapsed = currentTime - m_lastInterestSentTime;
+  // Same-name suppression must not destroy an in-flight SegmentFetcher. Stopping
+  // before this check left Face with no pending Interest callback while NFD PIT
+  // could still deliver Sync Data to the local face (triggerSync race).
+  if ((elapsed < ndn::time::milliseconds(MIN_JITTER)) &&
       (m_outstandingInterestName == syncInterestName)) {
-    NDN_LOG_TRACE("Suppressing Interest: " << std::hash<ndn::Name>{}(syncInterestName));
+    NDN_LOG_DEBUG("Suppressing Interest hash: " << std::hash<ndn::Name>{}(syncInterestName) <<
+                  ", elapsed: " << elapsed << ", fetcher-preserved=" <<
+                  (m_fetcher != nullptr));
     return;
+  }
+
+  // Only cancel the previous fetch when this call will actually start a new one.
+  // Otherwise two sync Interests in flight for the same name can both be satisfied
+  // by one Data; we still replace on a real re-expression.
+  if (m_fetcher) {
+    NDN_LOG_DEBUG("Stopping previous sync fetcher before re-expression");
+    m_fetcher->stop();
   }
 
   m_outstandingInterestName = syncInterestName;

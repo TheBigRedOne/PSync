@@ -126,8 +126,9 @@ PSYNC_PUBLIC_WITH_TESTS_ELSE_PRIVATE:
    * @brief Send sync interest for full synchronization
    *
    * Forms the interest name: /<sync-prefix>/<own-IBF>
-   * Cancels any pending sync interest we sent earlier on the face
-   * Sends the sync interest
+   * Same-name re-expression within MIN_JITTER is suppressed without cancelling
+   * the in-flight SegmentFetcher. A real re-expression stops the previous fetch
+   * and starts a new one.
    */
   void
   sendSyncInterest();

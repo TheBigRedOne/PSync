@@ -18,8 +18,8 @@
  */
 
 #include "PSync/full-producer.hpp"
+#include "PSync/detail/state.hpp"
 #include "PSync/detail/util.hpp"
-
 
 #include "tests/boost-test.hpp"
 #include "tests/io-fixture.hpp"
@@ -134,6 +134,90 @@ BOOST_AUTO_TEST_CASE(SatisfyPendingInterestsBehavior)
   BOOST_CHECK_EQUAL(m_face.sentData.size(), 1);
 
   BOOST_CHECK_EQUAL(node.m_pendingEntries.empty(), true);
+}
+
+BOOST_AUTO_TEST_CASE(TriggerSyncSameNamePreservesFetch)
+{
+  // Pattern A race: sendSyncInterest then triggerSync within MIN_JITTER must
+  // suppress without cancelling the in-flight SegmentFetcher, so Sync Data for
+  // the outstanding Interest still reaches onSyncData.
+  Name syncPrefix("/psync");
+  size_t nUpdateNames = 0;
+  FullProducer::Options opts;
+  opts.ibfCount = 40;
+  opts.syncInterestLifetime = 8_s;
+  opts.onUpdate = [&] (const std::vector<MissingDataInfo>& updates) {
+    nUpdateNames += updates.size();
+  };
+  FullProducer node(m_face, m_keyChain, syncPrefix, opts);
+
+  advanceClocks(10_ms);
+  BOOST_REQUIRE(!m_face.sentInterests.empty());
+  const Name interestName = m_face.sentInterests.back().getName();
+  m_face.sentInterests.clear();
+
+  node.triggerSync();
+  advanceClocks(1_ms);
+  BOOST_CHECK_EQUAL(m_face.sentInterests.size(), 0);
+
+  detail::State state;
+  state.addContent(Name("/remote/router").appendNumber(1));
+  auto compressed = detail::compress(node.m_contentCompression, state.wireEncode());
+  Name dataName = interestName;
+  dataName.appendVersion(1).appendSegment(0);
+  auto data = std::make_shared<ndn::Data>(dataName);
+  data->setContent(*compressed);
+  data->setFreshnessPeriod(1_s);
+  data->setFinalBlock(dataName[-1]);
+  m_keyChain.sign(*data);
+
+  m_face.receive(*data);
+  advanceClocks(10_ms);
+
+  BOOST_CHECK_GT(nUpdateNames, 0);
+}
+
+BOOST_AUTO_TEST_CASE(SameNameReexpressAfterJitterStopsPrevious)
+{
+  Name syncPrefix("/psync");
+  FullProducer::Options opts;
+  opts.ibfCount = 40;
+  opts.syncInterestLifetime = 8_s;
+  FullProducer node(m_face, m_keyChain, syncPrefix, opts);
+
+  advanceClocks(110_ms);
+  m_face.sentInterests.clear();
+
+  node.sendSyncInterest();
+  advanceClocks(1_ms);
+  BOOST_REQUIRE_EQUAL(m_face.sentInterests.size(), 1);
+  const Name firstName = m_face.sentInterests.back().getName();
+  m_face.sentInterests.clear();
+
+  advanceClocks(101_ms);
+  node.sendSyncInterest();
+  advanceClocks(1_ms);
+  BOOST_REQUIRE_EQUAL(m_face.sentInterests.size(), 1);
+  BOOST_CHECK_EQUAL(m_face.sentInterests.back().getName(), firstName);
+}
+
+BOOST_AUTO_TEST_CASE(DifferentNameNotSuppressedWithinJitter)
+{
+  Name syncPrefix("/psync");
+  FullProducer::Options opts;
+  opts.ibfCount = 40;
+  opts.syncInterestLifetime = 8_s;
+  FullProducer node(m_face, m_keyChain, syncPrefix, opts);
+
+  advanceClocks(10_ms);
+  m_face.sentInterests.clear();
+
+  node.addUserNode("/user/a");
+  node.updateSeqNo("/user/a", 1);
+  node.sendSyncInterest();
+  advanceClocks(1_ms);
+
+  BOOST_CHECK_EQUAL(m_face.sentInterests.size(), 1);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
