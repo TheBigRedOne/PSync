@@ -58,6 +58,8 @@ public:
     ndn::time::milliseconds syncDataFreshness = SYNC_REPLY_FRESHNESS;
     /// Compression scheme to use for Data content.
     CompressionScheme contentCompression = CompressionScheme::DEFAULT;
+    /// Re-express the local sync Interest when a received Interest shows we are clean-behind.
+    bool reexpressWhenBehind = false;
   };
 
   /**
@@ -240,6 +242,7 @@ private:
 
   ndn::time::milliseconds m_syncInterestLifetime;
   UpdateCallback m_onUpdate;
+  bool m_reexpressWhenBehind = false;
   ndn::scheduler::ScopedEventId m_scheduledSyncInterestId;
   static constexpr int MIN_JITTER = 100;
   static constexpr int MAX_JITTER = 500;
@@ -247,9 +250,7 @@ private:
   ndn::time::system_clock::time_point m_lastInterestSentTime;
   ndn::Name m_outstandingInterestName;
   ndn::ScopedRegisteredPrefixHandle m_registeredPrefix;
-  std::shared_ptr<ndn::SegmentFetcher> m_fetcher;
   uint64_t m_incomingFace = 0;
-  std::map<ndn::Name, WaitingEntryInfo> m_waitingForProcessing;
   bool m_inNoNewDataWaitOutPeriod = false;
   ndn::scheduler::ScopedEventId m_interestDelayTimerId;
   /// Shortest spacing between two re-expressions requested through triggerSync().
@@ -260,6 +261,8 @@ private:
 
 PSYNC_PUBLIC_WITH_TESTS_ELSE_PRIVATE:
   std::map<ndn::Name, PendingEntryInfo> m_pendingEntries;
+  std::map<ndn::Name, WaitingEntryInfo> m_waitingForProcessing;
+  std::shared_ptr<ndn::SegmentFetcher> m_fetcher;
 };
 
 } // namespace psync

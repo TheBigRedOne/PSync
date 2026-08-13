@@ -38,7 +38,8 @@ class FullSyncFixture : public IoFixture, public KeyChainFixture
 {
 protected:
   void
-  addNode(int id)
+  addNode(int id, bool reexpressWhenBehind = false,
+          ndn::time::milliseconds syncInterestLifetime = 1_s)
   {
     BOOST_ASSERT(id >= 0 && id < MAX_NODES);
     userPrefixes[id] = "/userPrefix" + std::to_string(id);
@@ -46,6 +47,8 @@ protected:
                                                        ndn::DummyClientFace::Options{true, true});
     FullProducer::Options opts;
     opts.ibfCount = 40;
+    opts.reexpressWhenBehind = reexpressWhenBehind;
+    opts.syncInterestLifetime = syncInterestLifetime;
     nodes[id] = std::make_unique<FullProducer>(*faces[id], m_keyChain, syncPrefix, opts);
     nodes[id]->addUserNode(userPrefixes[id]);
   }
@@ -462,6 +465,72 @@ BOOST_AUTO_TEST_CASE(DiffIBFDecodeFailureMultipleNodes)
       batchCheck(i, 0, 0, totalUpdates, 1);
     }
   });
+}
+
+BOOST_AUTO_TEST_CASE(EagerBehindLearnsAfterTriggerSync)
+{
+  // Empty pending + publishName + triggerSync. Behind node with the option
+  // must learn the new seq well before half-period fallback (~4 s at 8 s lifetime).
+  addNode(0, false, 8_s);
+  addNode(1, true, 8_s);
+
+  faces[0]->linkTo(*faces[1]);
+  advanceClocks(10_ms);
+  nodes[0]->m_pendingEntries.clear();
+
+  nodes[0]->publishName(userPrefixes[0]);
+  nodes[0]->triggerSync();
+  advanceClocks(10_ms, 80);
+
+  BOOST_CHECK_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 1);
+}
+
+BOOST_AUTO_TEST_CASE(BehindWithoutOptionDoesNotLearnInShortWindow)
+{
+  addNode(0, false, 8_s);
+  addNode(1, false, 8_s);
+
+  faces[0]->linkTo(*faces[1]);
+  advanceClocks(10_ms);
+  nodes[0]->m_pendingEntries.clear();
+
+  nodes[0]->publishName(userPrefixes[0]);
+  nodes[0]->triggerSync();
+  advanceClocks(10_ms, 80);
+
+  BOOST_CHECK_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), NOT_EXIST);
+}
+
+BOOST_AUTO_TEST_CASE(EagerBehindMinJitterPreservesFetcherThenRetries)
+{
+  addNode(0, false, 8_s);
+  addNode(1, true, 8_s);
+
+  faces[0]->linkTo(*faces[1]);
+  advanceClocks(10_ms);
+  nodes[0]->m_pendingEntries.clear();
+  advanceClocks(110_ms);
+
+  faces[1]->sentInterests.clear();
+  nodes[1]->sendSyncInterest();
+  advanceClocks(1_ms);
+  BOOST_REQUIRE_EQUAL(faces[1]->sentInterests.size(), 1);
+  auto* fetcher = nodes[1]->m_fetcher.get();
+  BOOST_REQUIRE(fetcher != nullptr);
+  faces[1]->sentInterests.clear();
+  nodes[0]->m_pendingEntries.clear();
+
+  nodes[0]->publishName(userPrefixes[0]);
+  nodes[0]->triggerSync();
+  advanceClocks(1_ms);
+
+  BOOST_CHECK_EQUAL(faces[1]->sentInterests.size(), 0);
+  BOOST_CHECK(nodes[1]->m_fetcher.get() == fetcher);
+  BOOST_CHECK(!nodes[1]->m_waitingForProcessing.empty());
+
+  advanceClocks(10_ms, 80);
+  BOOST_CHECK_GT(faces[1]->sentInterests.size(), 0);
+  BOOST_CHECK_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 1);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -39,6 +39,7 @@ FullProducer::FullProducer(ndn::Face& face,
                  opts.ibfCompression, opts.contentCompression)
   , m_syncInterestLifetime(opts.syncInterestLifetime)
   , m_onUpdate(opts.onUpdate)
+  , m_reexpressWhenBehind(opts.reexpressWhenBehind)
 {
   m_registeredPrefix = m_face.setInterestFilter(ndn::InterestFilter(m_syncPrefix).allowLoopback(false),
     [this] (auto&&... args) { onSyncInterest(std::forward<decltype(args)>(args)...); },
@@ -392,6 +393,10 @@ FullProducer::onSyncInterest(const ndn::Name& prefixName, const ndn::Interest& i
       NDN_LOG_TRACE("Adding Interest to waiting list: " << interestNameHash);
       m_waitingForProcessing.emplace(interestName, WaitingEntryInfo{0, interest.getNonce()});
       scheduleProcessWaitingInterests();
+      if (m_reexpressWhenBehind) {
+        NDN_LOG_DEBUG("Re-expressing sync Interest (behind)");
+        sendSyncInterest();
+      }
     }
     else if (isTimedProcessing && waitingIt != m_waitingForProcessing.end()) {
       if (waitingIt->second.numTries > 1) {
@@ -402,6 +407,10 @@ FullProducer::onSyncInterest(const ndn::Name& prefixName, const ndn::Interest& i
       else {
         NDN_LOG_TRACE("Still behind after waiting for Interest " << interestNameHash <<
                       ". Keep waiting for Interest as number of tries is not exhausted");
+        if (m_reexpressWhenBehind) {
+          NDN_LOG_DEBUG("Re-expressing sync Interest (behind retry)");
+          sendSyncInterest();
+        }
       }
     }
     else {
