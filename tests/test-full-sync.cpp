@@ -471,6 +471,7 @@ BOOST_AUTO_TEST_CASE(EagerBehindLearnsAfterTriggerSync)
 {
   // Empty pending + publishName + triggerSync. Behind node with the option
   // must learn the new seq well before half-period fallback (~4 s at 8 s lifetime).
+  // First-publication (pos==0, neg>0); the seq-update cases below are the H11 proof.
   addNode(0, false, 8_s);
   addNode(1, true, 8_s);
 
@@ -531,6 +532,126 @@ BOOST_AUTO_TEST_CASE(EagerBehindMinJitterPreservesFetcherThenRetries)
   advanceClocks(10_ms, 80);
   BOOST_CHECK_GT(faces[1]->sentInterests.size(), 0);
   BOOST_CHECK_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 1);
+}
+
+BOOST_AUTO_TEST_CASE(SamePrefixSequenceUpdateEagerBehind)
+{
+  addNode(0, false, 8_s);
+  addNode(1, true, 8_s);
+
+  faces[0]->linkTo(*faces[1]);
+  advanceClocks(10_ms);
+
+  nodes[0]->publishName(userPrefixes[0], 12);
+  advanceClocks(10_ms, 100);
+  BOOST_REQUIRE_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 12);
+
+  nodes[0]->m_pendingEntries.clear();
+  nodes[1]->m_pendingEntries.clear();
+  faces[0]->sentInterests.clear();
+  faces[1]->sentInterests.clear();
+  faces[0]->sentData.clear();
+
+  nodes[0]->publishName(userPrefixes[0], 13);
+  nodes[0]->triggerSync();
+  advanceClocks(10_ms, 80);
+
+  BOOST_CHECK_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 13);
+  BOOST_CHECK_GT(faces[1]->sentInterests.size(), 0);
+  BOOST_CHECK_GT(faces[0]->sentData.size(), 0);
+}
+
+BOOST_AUTO_TEST_CASE(SamePrefixSequenceUpdateOptionOff)
+{
+  addNode(0, false, 8_s);
+  addNode(1, false, 8_s);
+
+  faces[0]->linkTo(*faces[1]);
+  advanceClocks(10_ms);
+
+  nodes[0]->publishName(userPrefixes[0], 12);
+  advanceClocks(10_ms, 100);
+  BOOST_REQUIRE_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 12);
+
+  nodes[0]->m_pendingEntries.clear();
+  nodes[1]->m_pendingEntries.clear();
+  faces[1]->sentInterests.clear();
+
+  nodes[0]->publishName(userPrefixes[0], 13);
+  nodes[0]->triggerSync();
+  advanceClocks(10_ms, 80);
+
+  BOOST_CHECK_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 12);
+  BOOST_CHECK(nodes[1]->m_waitingForProcessing.empty());
+}
+
+BOOST_AUTO_TEST_CASE(LocalAheadSendsDataNotProbe)
+{
+  addNode(0, true, 8_s);
+  addNode(1, false, 8_s);
+
+  faces[0]->linkTo(*faces[1]);
+  advanceClocks(10_ms);
+
+  nodes[0]->publishName(userPrefixes[0], 12);
+  advanceClocks(10_ms, 100);
+  BOOST_REQUIRE_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 12);
+
+  nodes[0]->m_pendingEntries.clear();
+  nodes[1]->m_pendingEntries.clear();
+
+  nodes[0]->publishName(userPrefixes[0], 13);
+  nodes[0]->sendSyncInterest();
+  advanceClocks(10_ms);
+
+  faces[0]->sentInterests.clear();
+  faces[0]->sentData.clear();
+
+  nodes[1]->sendSyncInterest();
+  advanceClocks(10_ms, 20);
+
+  BOOST_CHECK_GT(faces[0]->sentData.size(), 0);
+  BOOST_CHECK(nodes[0]->m_waitingForProcessing.empty());
+  BOOST_CHECK_EQUAL(faces[0]->sentInterests.size(), 0);
+  BOOST_CHECK_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 13);
+}
+
+BOOST_AUTO_TEST_CASE(SamePrefixMinJitterRetry)
+{
+  addNode(0, false, 8_s);
+  addNode(1, true, 8_s);
+
+  faces[0]->linkTo(*faces[1]);
+  advanceClocks(10_ms);
+
+  nodes[0]->publishName(userPrefixes[0], 12);
+  advanceClocks(10_ms, 100);
+  BOOST_REQUIRE_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 12);
+
+  nodes[0]->m_pendingEntries.clear();
+  nodes[1]->m_pendingEntries.clear();
+  advanceClocks(110_ms);
+
+  faces[1]->sentInterests.clear();
+  nodes[1]->sendSyncInterest();
+  advanceClocks(1_ms);
+  BOOST_REQUIRE_EQUAL(faces[1]->sentInterests.size(), 1);
+  auto* fetcher = nodes[1]->m_fetcher.get();
+  BOOST_REQUIRE(fetcher != nullptr);
+  faces[1]->sentInterests.clear();
+  nodes[0]->m_pendingEntries.clear();
+
+  nodes[0]->publishName(userPrefixes[0], 13);
+  nodes[0]->triggerSync();
+  advanceClocks(1_ms);
+
+  BOOST_CHECK_EQUAL(faces[1]->sentInterests.size(), 0);
+  BOOST_CHECK(nodes[1]->m_fetcher.get() == fetcher);
+  BOOST_CHECK(!nodes[1]->m_waitingForProcessing.empty());
+
+  advanceClocks(10_ms, 80);
+  BOOST_CHECK_GT(faces[1]->sentInterests.size(), 0);
+  BOOST_CHECK_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 13);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

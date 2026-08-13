@@ -58,7 +58,8 @@ public:
     ndn::time::milliseconds syncDataFreshness = SYNC_REPLY_FRESHNESS;
     /// Compression scheme to use for Data content.
     CompressionScheme contentCompression = CompressionScheme::DEFAULT;
-    /// Re-express the local sync Interest when a received Interest shows we are clean-behind.
+    /// Re-express the local sync Interest when a received Interest shows we are
+    /// effective-behind: no sendable outgoing State, and the remote IBF still has extras.
     bool reexpressWhenBehind = false;
   };
 

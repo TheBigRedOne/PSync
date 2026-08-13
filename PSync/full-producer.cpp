@@ -387,61 +387,68 @@ FullProducer::onSyncInterest(const ndn::Name& prefixName, const ndn::Interest& i
     return;
   }
 
-  // Only add to waiting list if we don't have anything to send (positive = 0)
-  if (diff.positive.size() == 0 && diff.negative.size() > 0) {
-    if (!isTimedProcessing && waitingIt == m_waitingForProcessing.end()) {
-      NDN_LOG_TRACE("Adding Interest to waiting list: " << interestNameHash);
-      m_waitingForProcessing.emplace(interestName, WaitingEntryInfo{0, interest.getNonce()});
-      scheduleProcessWaitingInterests();
-      if (m_reexpressWhenBehind) {
-        NDN_LOG_DEBUG("Re-expressing sync Interest (behind)");
-        sendSyncInterest();
+  detail::State state;
+  for (const auto& hash : diff.positive) {
+    auto nameIt = m_biMap.left.find(hash);
+    if (nameIt != m_biMap.left.end()) {
+      ndn::Name nameWithoutSeq = nameIt->second.getPrefix(-1);
+      // Don't sync up sequence number zero
+      if (m_prefixes[nameWithoutSeq] != 0 &&
+          !isFutureHash(nameWithoutSeq.toUri(), diff.negative)) {
+        state.addContent(nameIt->second);
       }
     }
-    else if (isTimedProcessing && waitingIt != m_waitingForProcessing.end()) {
-      if (waitingIt->second.numTries > 1) {
-        NDN_LOG_TRACE("Still behind after waiting for Interest " << interestNameHash <<
-                      ". Erasing waiting Interest as we have tried twice");
-        waitingIt->second.numTries = std::numeric_limits<uint16_t>::max(); // markWaitingInterestForDeletion
-      }
-      else {
-        NDN_LOG_TRACE("Still behind after waiting for Interest " << interestNameHash <<
-                      ". Keep waiting for Interest as number of tries is not exhausted");
-        if (m_reexpressWhenBehind) {
-          NDN_LOG_DEBUG("Re-expressing sync Interest (behind retry)");
-          sendSyncInterest();
-        }
-      }
-    }
-    else {
-      NDN_LOG_TRACE("Still behind after waiting for Interest " << interestNameHash);
+  }
+
+  if (!state.getContent().empty()) {
+    NDN_LOG_DEBUG("Sending sync content: " << state);
+    sendSyncData(interestName, state.wireEncode(), m_syncReplyFreshness);
+
+    // Timed processing or not - if we are answering it, it should not go in waiting Interests
+    if (waitingIt != m_waitingForProcessing.end()) {
+      waitingIt->second.numTries = std::numeric_limits<uint16_t>::max();
     }
     return;
   }
 
-  if (diff.positive.size() > 0) {
-    detail::State state;
-    for (const auto& hash : diff.positive) {
-      auto nameIt = m_biMap.left.find(hash);
-      if (nameIt != m_biMap.left.end()) {
-        ndn::Name nameWithoutSeq = nameIt->second.getPrefix(-1);
-        // Don't sync up sequence number zero
-        if (m_prefixes[nameWithoutSeq] != 0 &&
-            !isFutureHash(nameWithoutSeq.toUri(), diff.negative)) {
-          state.addContent(nameIt->second);
-        }
+  if (diff.negative.size() == 0) {
+    return;
+  }
+
+  // Effective-behind: nothing sendable, remote IBF still has extras.
+  // Case A (pos==0): vanilla waiting-list, eager send only if the option is on.
+  // H11-like (pos>0, State empty): waiting-list and eager send only if the option is on.
+  // Option off must remain silent for H11-like, matching vanilla.
+  if (diff.positive.size() > 0 && !m_reexpressWhenBehind) {
+    return;
+  }
+
+  if (!isTimedProcessing && waitingIt == m_waitingForProcessing.end()) {
+    NDN_LOG_TRACE("Adding Interest to waiting list: " << interestNameHash);
+    m_waitingForProcessing.emplace(interestName, WaitingEntryInfo{0, interest.getNonce()});
+    scheduleProcessWaitingInterests();
+    if (m_reexpressWhenBehind) {
+      NDN_LOG_DEBUG("Re-expressing sync Interest (behind)");
+      sendSyncInterest();
+    }
+  }
+  else if (isTimedProcessing && waitingIt != m_waitingForProcessing.end()) {
+    if (waitingIt->second.numTries > 1) {
+      NDN_LOG_TRACE("Still behind after waiting for Interest " << interestNameHash <<
+                    ". Erasing waiting Interest as we have tried twice");
+      waitingIt->second.numTries = std::numeric_limits<uint16_t>::max(); // markWaitingInterestForDeletion
+    }
+    else {
+      NDN_LOG_TRACE("Still behind after waiting for Interest " << interestNameHash <<
+                    ". Keep waiting for Interest as number of tries is not exhausted");
+      if (m_reexpressWhenBehind) {
+        NDN_LOG_DEBUG("Re-expressing sync Interest (behind retry)");
+        sendSyncInterest();
       }
     }
-
-    if (!state.getContent().empty()) {
-      NDN_LOG_DEBUG("Sending sync content: " << state);
-      sendSyncData(interestName, state.wireEncode(), m_syncReplyFreshness);
-
-      // Timed processing or not - if we are answering it, it should not go in waiting Interests
-      if (waitingIt != m_waitingForProcessing.end()) {
-        waitingIt->second.numTries = std::numeric_limits<uint16_t>::max();
-      }
-    }
+  }
+  else {
+    NDN_LOG_TRACE("Still behind after waiting for Interest " << interestNameHash);
   }
 }
 
