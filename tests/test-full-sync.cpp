@@ -512,8 +512,18 @@ BOOST_AUTO_TEST_CASE(EagerBehindLearnsAfterTriggerSync)
   advanceClocks(10_ms);
   nodes[0]->m_pendingEntries.clear();
 
+  // UnitTestSteadyClock and m_lastTriggerTime both start at 0, so triggerSync
+  // coalesces until 1 s. Constructor sendSyncInterest schedules the next
+  // periodic re-express at lifetime/2 + 100–500 ms (4.1–4.5 s). 1.1 s is
+  // past coalesce and well before that timer.
+  advanceClocks(10_ms, 110);
+  BOOST_REQUIRE_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), NOT_EXIST);
+  nodes[0]->m_pendingEntries.clear();
+  faces[0]->sentInterests.clear();
+
   nodes[0]->publishName(userPrefixes[0]);
   nodes[0]->triggerSync();
+  BOOST_REQUIRE_GT(faces[0]->sentInterests.size(), 0);
   advanceClocks(10_ms, 80);
 
   BOOST_CHECK_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 1);
@@ -528,11 +538,22 @@ BOOST_AUTO_TEST_CASE(BehindWithoutOptionDoesNotLearnInShortWindow)
   advanceClocks(10_ms);
   nodes[0]->m_pendingEntries.clear();
 
+  // Same 1.1 s pre-advance as EagerBehindLearnsAfterTriggerSync so
+  // triggerSync actually sends. Window end ~1.91 s << constructor
+  // half-period 4.1–4.5 s.
+  advanceClocks(10_ms, 110);
+  BOOST_REQUIRE_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), NOT_EXIST);
+  nodes[0]->m_pendingEntries.clear();
+  faces[0]->sentInterests.clear();
+  faces[1]->sentInterests.clear();
+
   nodes[0]->publishName(userPrefixes[0]);
   nodes[0]->triggerSync();
+  BOOST_REQUIRE_GT(faces[0]->sentInterests.size(), 0);
   advanceClocks(10_ms, 80);
 
   BOOST_CHECK_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), NOT_EXIST);
+  BOOST_CHECK_EQUAL(faces[1]->sentInterests.size(), 0);
 }
 
 BOOST_AUTO_TEST_CASE(EagerBehindMinJitterPreservesFetcherThenRetries)
@@ -543,7 +564,9 @@ BOOST_AUTO_TEST_CASE(EagerBehindMinJitterPreservesFetcherThenRetries)
   faces[0]->linkTo(*faces[1]);
   advanceClocks(10_ms);
   nodes[0]->m_pendingEntries.clear();
-  advanceClocks(110_ms);
+  // Past triggerSync coalesce (1 s); still before constructor half-period
+  // (4.1–4.5 s). B's constructor MIN_JITTER has also elapsed.
+  advanceClocks(10_ms, 110);
 
   faces[1]->sentInterests.clear();
   nodes[1]->sendSyncInterest();
