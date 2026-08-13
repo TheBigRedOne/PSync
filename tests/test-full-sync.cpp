@@ -62,6 +62,39 @@ protected:
   }
 
   /**
+   * @brief Make @p peer learn the publisher's current IBF via an explicit Interest.
+   *
+   * FullProducer sends its first Sync Interest in the constructor, before
+   * DummyClientFace::linkTo. Those Interests never arrive, so publishName has
+   * nothing in m_pendingEntries to satisfy.
+   *
+   * Tests that use the default 1 s lifetime recover because advanceClocks(10_ms, 100)
+   * reaches the half-period re-express. An 8 s lifetime schedules that re-express
+   * at ~4 s, so the same 1 s window leaves the peer at NOT_EXIST.
+   *
+   * After MIN_JITTER, the peer re-expresses; the publisher already has sendable
+   * State and replies with Sync Data. Same pattern as
+   * EagerBehindMinJitterPreservesFetcherThenRetries.
+   *
+   * onSyncData then schedules another sendSyncInterest after jitter in
+   * [100, 500] ms. That re-express must be drained here: if it fires in the
+   * later 800 ms test window it can satisfy seq 13 as ordinary Interest/Data
+   * (not the path under test).
+   */
+  void
+  letPeerLearnByInterest(int publisher, int peer)
+  {
+    BOOST_ASSERT(nodes[publisher] != nullptr && nodes[peer] != nullptr);
+
+    advanceClocks(110_ms);
+    nodes[peer]->sendSyncInterest();
+    advanceClocks(10_ms, 20);
+
+    advanceClocks(10_ms, 51);
+    advanceClocks(110_ms);
+  }
+
+  /**
    * @brief Return a user prefix in the form /userNode<id>-<i>.
    * @param id update originator node index.
    * @param i user prefix index.
@@ -543,9 +576,12 @@ BOOST_AUTO_TEST_CASE(SamePrefixSequenceUpdateEagerBehind)
   advanceClocks(10_ms);
 
   nodes[0]->publishName(userPrefixes[0], 12);
-  advanceClocks(10_ms, 100);
+  letPeerLearnByInterest(0, 1);
+  BOOST_REQUIRE_EQUAL(nodes[0]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 12);
   BOOST_REQUIRE_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 12);
 
+  // Drop the equal IBF Interest parked after learning seq 12, otherwise
+  // publishName(13) would satisfyPendingInterests (TYPE-PENDING), not H11.
   nodes[0]->m_pendingEntries.clear();
   nodes[1]->m_pendingEntries.clear();
   faces[0]->sentInterests.clear();
@@ -553,6 +589,7 @@ BOOST_AUTO_TEST_CASE(SamePrefixSequenceUpdateEagerBehind)
   faces[0]->sentData.clear();
 
   nodes[0]->publishName(userPrefixes[0], 13);
+  BOOST_CHECK_EQUAL(faces[0]->sentData.size(), 0);
   nodes[0]->triggerSync();
   advanceClocks(10_ms, 80);
 
@@ -570,18 +607,22 @@ BOOST_AUTO_TEST_CASE(SamePrefixSequenceUpdateOptionOff)
   advanceClocks(10_ms);
 
   nodes[0]->publishName(userPrefixes[0], 12);
-  advanceClocks(10_ms, 100);
+  letPeerLearnByInterest(0, 1);
+  BOOST_REQUIRE_EQUAL(nodes[0]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 12);
   BOOST_REQUIRE_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 12);
 
   nodes[0]->m_pendingEntries.clear();
   nodes[1]->m_pendingEntries.clear();
+  faces[0]->sentData.clear();
   faces[1]->sentInterests.clear();
 
   nodes[0]->publishName(userPrefixes[0], 13);
+  BOOST_CHECK_EQUAL(faces[0]->sentData.size(), 0);
   nodes[0]->triggerSync();
   advanceClocks(10_ms, 80);
 
   BOOST_CHECK_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 12);
+  BOOST_CHECK_EQUAL(faces[1]->sentInterests.size(), 0);
   BOOST_CHECK(nodes[1]->m_waitingForProcessing.empty());
 }
 
@@ -594,13 +635,16 @@ BOOST_AUTO_TEST_CASE(LocalAheadSendsDataNotProbe)
   advanceClocks(10_ms);
 
   nodes[0]->publishName(userPrefixes[0], 12);
-  advanceClocks(10_ms, 100);
+  letPeerLearnByInterest(0, 1);
+  BOOST_REQUIRE_EQUAL(nodes[0]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 12);
   BOOST_REQUIRE_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 12);
 
   nodes[0]->m_pendingEntries.clear();
   nodes[1]->m_pendingEntries.clear();
+  faces[0]->sentData.clear();
 
   nodes[0]->publishName(userPrefixes[0], 13);
+  BOOST_CHECK_EQUAL(faces[0]->sentData.size(), 0);
   nodes[0]->sendSyncInterest();
   advanceClocks(10_ms);
 
@@ -625,7 +669,8 @@ BOOST_AUTO_TEST_CASE(SamePrefixMinJitterRetry)
   advanceClocks(10_ms);
 
   nodes[0]->publishName(userPrefixes[0], 12);
-  advanceClocks(10_ms, 100);
+  letPeerLearnByInterest(0, 1);
+  BOOST_REQUIRE_EQUAL(nodes[0]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 12);
   BOOST_REQUIRE_EQUAL(nodes[1]->getSeqNo(userPrefixes[0]).value_or(NOT_EXIST), 12);
 
   nodes[0]->m_pendingEntries.clear();
@@ -639,9 +684,11 @@ BOOST_AUTO_TEST_CASE(SamePrefixMinJitterRetry)
   auto* fetcher = nodes[1]->m_fetcher.get();
   BOOST_REQUIRE(fetcher != nullptr);
   faces[1]->sentInterests.clear();
+  faces[0]->sentData.clear();
   nodes[0]->m_pendingEntries.clear();
 
   nodes[0]->publishName(userPrefixes[0], 13);
+  BOOST_CHECK_EQUAL(faces[0]->sentData.size(), 0);
   nodes[0]->triggerSync();
   advanceClocks(1_ms);
 
