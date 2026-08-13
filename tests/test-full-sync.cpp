@@ -523,6 +523,7 @@ BOOST_AUTO_TEST_CASE(EagerBehindLearnsAfterTriggerSync)
 
   nodes[0]->publishName(userPrefixes[0]);
   nodes[0]->triggerSync();
+  advanceClocks(1_ms);
   BOOST_REQUIRE_GT(faces[0]->sentInterests.size(), 0);
   advanceClocks(10_ms, 80);
 
@@ -549,6 +550,7 @@ BOOST_AUTO_TEST_CASE(BehindWithoutOptionDoesNotLearnInShortWindow)
 
   nodes[0]->publishName(userPrefixes[0]);
   nodes[0]->triggerSync();
+  advanceClocks(1_ms);
   BOOST_REQUIRE_GT(faces[0]->sentInterests.size(), 0);
   advanceClocks(10_ms, 80);
 
